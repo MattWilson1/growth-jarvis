@@ -257,3 +257,166 @@ if response.status_code == 200:
 else:
 
     print(f"Error {response.status_code}: {response.text}")
+
+
+import csv
+
+import ollama
+
+import json
+
+from collections import defaultdict
+
+ 
+
+INPUT_CSV = 'my_tickets.csv'
+
+OUTPUT_CSV = 'categorized_tickets.csv'
+
+OUTPUT_MD = 'categorized_review.md'
+
+ 
+
+system_prompt = """UUUHHHH, yeah tell me about how I've been getting on by reading the tickets provided to you """
+
+ 
+
+def call_deepseek(summary, description):
+
+    user_prompt = f"""
+
+Jira Ticket Summary: 
+
+{summary}
+
+ 
+
+Jira Ticket Description: 
+
+{description}
+
+"""
+
+ 
+
+    response = ollama.chat(model='deepseek-r1:8b', messages=[
+
+        {'role': 'system', 'content': system_prompt.strip()},
+
+        {'role': 'user', 'content': user_prompt.strip()}
+
+    ])
+
+ 
+
+    return response['message']['content']
+
+ 
+
+categorized_data = []
+
+category_buckets = defaultdict(list)
+
+ 
+
+with open(INPUT_CSV, newline='', encoding='utf-8') as infile:
+
+    reader = csv.DictReader(infile)
+
+    for row in reader:
+
+        key = row['key']
+
+        summary = row['summary']
+
+        description = row['description']
+
+        print(f"🔄 Processing {key}: {summary[:60]}...")
+
+ 
+
+        try:
+
+            raw_response = call_deepseek(summary, description)
+
+            parsed = json.loads(raw_response)
+
+ 
+
+            categorized_data.append({
+
+                'key': key,
+
+                'summary': summary,
+
+                'description': description,
+
+                'category': ', '.join(parsed.get('Category', [])),
+
+                'impact': parsed.get('Impact', ''),
+
+                'notes': parsed.get('Notes', '')
+
+            })
+
+ 
+
+            for cat in parsed.get('Category', []):
+
+                category_buckets[cat].append({
+
+                    'key': key,
+
+                    'summary': parsed.get('Summary', summary),
+
+                    'impact': parsed.get('Impact', '')
+
+                })
+
+ 
+
+        except Exception as e:
+
+            print(f"⚠️ Error parsing response for {key}: {e}")
+
+            print("Raw response:", raw_response)
+
+ 
+
+# Write CSV output
+
+with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8') as out_csv:
+
+    fieldnames = ['key', 'summary', 'description', 'category', 'impact', 'notes']
+
+    writer = csv.DictWriter(out_csv, fieldnames=fieldnames)
+
+    writer.writeheader()
+
+    writer.writerows(categorized_data)
+
+ 
+
+print(f"✅ Wrote structured output to {OUTPUT_CSV}")
+
+ 
+
+# Write Markdown grouped by category
+
+with open(OUTPUT_MD, 'w', encoding='utf-8') as md:
+
+    md.write("# 📝 Mid-Year Review Summary (Grouped by Performance Goal)\n\n")
+
+    for category, items in category_buckets.items():
+
+        md.write(f"## {category}\n\n")
+
+        for item in items:
+
+            md.write(f"- **{item['key']}**: {item['summary']}  \n")
+
+            md.write(f"  _Impact_: {item['impact']}\n\n")
+
+ 
+
+print(f"✅ Wrote grouped Markdown summary to {OUTPUT_MD}")
